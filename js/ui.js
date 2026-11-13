@@ -761,13 +761,13 @@ function BookPage(id) {
   let book = bookOf(id) || src.bookFromId(id);
   let error = '', loading = false, fullDesc = false;
   const head = h('div'), main = h('div', { class: 'pad' }), acts = h('div', { class: 'acts' });
-  const info = h('div'), chList = h('div');
+  const info = h('div'), chList = h('div'), epub = h('div', { class: 'pad', css: 'padding-top:12px' });
   const el = h('section', { class: 'view page' },
     h('header', { class: 'bar' },
       h('button', { class: 'bar-btn l', onclick: back, 'aria-label': 'Back' }, icon('back')),
       h('div', { class: 'bar-title', text: 'HARK' }),
       h('button', { class: 'bar-btn r', onclick: share, 'aria-label': 'Share' }, icon('share'))),
-    h('div', { class: 'scroll' }, head, main, acts, info, chList));
+    h('div', { class: 'scroll' }, head, main, acts, epub, info, chList));
 
   const hasCh = () => !!(book.chapters && book.chapters.length);
   const isCurrent = () => player.state.book && player.state.book.id === book.id;
@@ -821,35 +821,41 @@ function BookPage(id) {
         drawActs(); toast(saved ? 'Saved to your library' : 'Removed from saved');
       } }, icon(rec && rec.saved ? 'bookmarkFill' : 'bookmark', 22), rec && rec.saved ? 'Saved' : 'Save'),
       h('button', { class: rec && rec.textId ? 'on' : '', onclick: () => readAlong(false), disabled: !hasCh() }, icon('book', 22), 'Read along'));
+    const linked = rec && rec.textId && lib.get(rec.textId);
+    epub.replaceChildren(h('button', { class: 'btn', disabled: !hasCh(), onclick: pickBookFile }, icon('filePlus', 20),
+      linked ? 'Replace the book file (EPUB)' : 'Add the book file (EPUB)'));
   }
 
   // Open the book's text beside the recording. The first time, the reader picks which edition.
+  // Pair a text with this recording and open it beside the audio.
+  async function startText(t) {
+    remember(t);
+    lib.upsert(book, { textId: t.id });
+    if (!isCurrent()) player.load(book, { autoplay: false });
+    toast('Opening the text…');
+    await openReader(t, { follow: true });
+    drawActs(); drawInfo();
+  }
+  // Your own book file (EPUB or text) from the phone becomes this recording's text.
+  function pickBookFile() {
+    const inp = h('input', { type: 'file' });
+    inp.addEventListener('change', async () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      toast('Adding the book…');
+      try {
+        const t = await books.importFile(f);
+        lib.upsert(t, { saved: true, savedAt: Date.now() });
+        startText(t);
+      } catch (e) { toast(`Could not add that file (${e.message}).`); }
+    });
+    inp.click();
+  }
+
   async function readAlong(change) {
     const rec = lib.get(book.id);
-    const start = async t => {
-      remember(t);
-      lib.upsert(book, { textId: t.id });
-      if (!isCurrent()) player.load(book, { autoplay: false });
-      toast('Opening the text…');
-      await openReader(t, { follow: true });
-      drawActs(); drawInfo();
-    };
+    const start = startText, pickFile = pickBookFile;
     if (!change && rec && rec.textId) return start(bookOf(rec.textId) || books.bookFromId(rec.textId));
-    // Your own book file (EPUB or text) can be paired with the recording, as well as a free edition.
-    const pickFile = () => {
-      const inp = h('input', { type: 'file' });
-      inp.addEventListener('change', async () => {
-        const f = inp.files && inp.files[0];
-        if (!f) return;
-        toast('Adding the book…');
-        try {
-          const t = await books.importFile(f);
-          lib.upsert(t, { saved: true, savedAt: Date.now() });
-          start(t);
-        } catch (e) { toast(`Could not add that file (${e.message}).`); }
-      });
-      inp.click();
-    };
     let found = [];
     if (!book.own) toast('Looking for the text…');
     try { found = await books.findText(book); } catch { /* offline or no source: the file option still works */ }
