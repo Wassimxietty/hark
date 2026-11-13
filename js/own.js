@@ -68,7 +68,10 @@ const pretty = name => name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim()
 export async function importAudio(fileList) {
   const files = [...fileList].filter(f => TYPES[ext(f.name)] || /^audio\//.test(f.type))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  if (!files.length) throw new Error('no audio files were picked');
+  if (!files.length) {
+    const bad = [...fileList].map(f => '.' + (ext(f.name) || '?')).join(', ');
+    throw new Error(/aax?/.test(bad) ? 'Audible .aa/.aax files are copy-protected and cannot be played here' : 'not an audio file Hark can play: ' + bad);
+  }
   if (!dl.supported) throw new Error('this browser cannot store files');
   const id = 'own_' + Date.now().toString(36);
   let tags = { title: '', author: '', secs: 0, cover: null };
