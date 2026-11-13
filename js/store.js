@@ -23,8 +23,11 @@ const DEFAULTS = {
   sourceOrder: ['archive', 'librivox'],
   sourceOff: {},
   lastBook: null,
+  lastText: null,
+  reader: { size: 18, font: 'serif', lh: 1.6, margin: 22, align: 'left', mode: 'pages', tone: 'app', awake: false },
 };
 export const settings = Object.assign({}, DEFAULTS, LS.get('hark.settings', {}));
+settings.reader = Object.assign({}, DEFAULTS.reader, settings.reader);
 for (const k of DEFAULTS.sourceOrder) if (!settings.sourceOrder.includes(k)) settings.sourceOrder.push(k);
 
 export function saveSettings(patch) {
@@ -72,8 +75,12 @@ const books = new Map();
 
 function openDb() {
   return new Promise((res, rej) => {
-    const rq = indexedDB.open('hark', 1);
-    rq.onupgradeneeded = () => rq.result.createObjectStore('books', { keyPath: 'id' });
+    const rq = indexedDB.open('hark', 2);
+    rq.onupgradeneeded = () => {
+      const d = rq.result;
+      if (!d.objectStoreNames.contains('books')) d.createObjectStore('books', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('texts')) d.createObjectStore('texts', { keyPath: 'id' });
+    };
     rq.onsuccess = () => res(rq.result);
     rq.onerror = () => rej(rq.error);
   });
@@ -89,6 +96,11 @@ export async function initStore() {
     await new Promise(res => {
       const rq = db.transaction('books').objectStore('books').getAll();
       rq.onsuccess = () => { for (const r of rq.result) books.set(r.id, r); res(); };
+      rq.onerror = () => res();
+    });
+    await new Promise(res => {
+      const rq = db.transaction('texts').objectStore('texts').getAllKeys();
+      rq.onsuccess = () => { for (const k of rq.result) textIds.add(k); res(); };
       rq.onerror = () => res();
     });
   } catch (e) {
@@ -128,3 +140,35 @@ export const lib = {
   },
 };
 export { mergeBook };
+
+// ---------- book texts (the words of ebooks, kept for offline reading) ----------
+const textIds = new Set();
+const textMem = new Map(); // used when IndexedDB is unavailable
+export const texts = {
+  has: id => textIds.has(id),
+  count: () => textIds.size,
+  get(id) {
+    if (!db) return Promise.resolve(textMem.get(id) || null);
+    return new Promise(res => {
+      const rq = db.transaction('texts').objectStore('texts').get(id);
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => res(null);
+    });
+  },
+  put(rec) {
+    textIds.add(rec.id);
+    if (!db) { textMem.set(rec.id, rec); bus.emit('texts', rec.id); return Promise.resolve(); }
+    return new Promise((res, rej) => {
+      const t = db.transaction('texts', 'readwrite');
+      t.objectStore('texts').put(rec);
+      t.oncomplete = () => { bus.emit('texts', rec.id); res(); };
+      t.onerror = t.onabort = () => { textIds.delete(rec.id); rej(t.error || new Error('storage full')); };
+    });
+  },
+  remove(id) {
+    textIds.delete(id);
+    textMem.delete(id);
+    if (db) { try { db.transaction('texts', 'readwrite').objectStore('texts').delete(id); } catch { /* ignore */ } }
+    bus.emit('texts', id);
+  },
+};

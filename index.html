@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://librivox.org; style-src 'self'; img-src 'self' data: blob: https://archive.org https://*.archive.org; media-src 'self' data: blob: https://archive.org https://*.archive.org; connect-src 'self' https://archive.org https://*.archive.org; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://librivox.org; style-src 'self'; img-src 'self' data: blob: https://archive.org https://*.archive.org https://standardebooks.org; media-src 'self' data: blob: https://archive.org https://*.archive.org; connect-src 'self' https://archive.org https://*.archive.org https://standardebooks.org; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Hark</title>
 <meta name="description" content="A light player for free public-domain audiobooks.">
@@ -26,10 +26,12 @@
   <nav id="tabs" aria-label="Main"></nav>
 </div>
 <div id="player" aria-hidden="true"></div>
+<div id="reader" aria-hidden="true"></div>
 <div id="scrim" hidden></div>
 <div id="sheet" role="dialog" aria-modal="true" hidden></div>
 <div id="toast" role="status" hidden></div>
 <input type="file" id="pick" accept="image/*" hidden>
+<input type="file" id="pickBook" accept=".epub,.txt,application/epub+zip,text/plain" hidden>
 <noscript>Hark needs JavaScript to run.</noscript>
 <script type="module" src="js/app.js"></script>
 </body>
