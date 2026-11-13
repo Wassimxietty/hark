@@ -37,6 +37,13 @@ export async function localUrl(url) {
 
 function emit(id) { bus.emit('dl', id); }
 
+/** Keeps one of the user's own audio files under a made-up address the player can look up. */
+export async function storeLocal(url, file, type) {
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  await (await open()).put(url, new Response(file, { headers: { 'Content-Type': type } }));
+  have.add(url);
+}
+
 export function downloadBook(book) {
   if (!supported || jobs.has(book.id) || !book.chapters) return;
   jobs.set(book.id, { ctrl: new AbortController(), done: countFor(book), total: book.chapters.length, book });

@@ -7,6 +7,7 @@ import * as player from './player.js';
 import * as dl from './downloads.js';
 import * as theme from './theme.js';
 import * as books from './books.js';
+import { importAudio } from './own.js';
 import { texts } from './store.js';
 import { buildReader, openReader } from './reader.js';
 import { toast, openSheet, closeSheet, confirmSheet, seg, toggle } from './kit.js';
@@ -192,7 +193,7 @@ function HomeView() {
   const scroller = h('div', { class: 'scroll' }, chips, hero, body);
   const el = h('section', { class: 'view', hidden: true },
     h('header', { class: 'bar' },
-      h('div', { class: 'bar-btn l' }, icon('headphones', 22)),
+      h('button', { class: 'bar-btn l', 'aria-label': 'Add your own audiobook file', onclick: () => $('#pickAudio').click() }, icon('filePlus', 22)),
       h('div', { class: 'bar-title', text: 'HARK' }),
       h('button', { class: 'bar-btn r', 'aria-label': 'Next colour theme', onclick: nextTheme }, icon('sparkle', 22))),
     scroller);
@@ -227,7 +228,9 @@ function HomeView() {
       hero.replaceChildren(h('div', { class: 'hi' },
         h('h2', { text: 'Listen anywhere.' }),
         h('p', { text: 'Free public-domain audiobooks, read by volunteers. Stream them or keep them on your iPhone.' }),
-        h('button', { class: 'btn', onclick: () => goTab('search') }, icon('search', 20), 'Find a book')));
+        h('div', { class: 'pair' },
+          h('button', { class: 'btn', onclick: () => goTab('search') }, icon('search', 20), 'Find'),
+          h('button', { class: 'btn', onclick: () => $('#pickAudio').click() }, icon('filePlus', 20), 'Add a file'))));
     }
   }
 
@@ -264,6 +267,16 @@ function HomeView() {
       pagedList(host, p => src.list('genre', genre, p));
     }
   }
+
+  const pickA = $('#pickAudio');
+  pickA.addEventListener('change', async () => {
+    const files = pickA.files ? [...pickA.files] : [];
+    pickA.value = '';
+    if (!files.length) return;
+    toast('Adding your audiobook… keep Hark open.');
+    try { const b = remember(await importAudio(files)); toast('Added to your library'); openBook(b.id); }
+    catch (e) { toast(/quota/i.test(e.name + e.message) ? 'Not enough free storage for that file.' : `Could not add that file (${e.message}).`); }
+  });
 
   drawChips(); drawHero(); drawBody();
   let heroKey = '';
@@ -837,6 +850,7 @@ function BookPage(id) {
   }
 
   function onDownload() {
+    if (book.own) return toast('This is your own file. Use Remove from library to delete it.');
     if (dl.jobFor(book.id)) return dl.cancel(book.id);
     if (dl.isComplete(book)) {
       return confirmSheet('Remove download', 'The downloaded chapters of this book will be deleted from this iPhone. You can still stream it.', 'Remove', () => dl.removeBook(book));
@@ -851,8 +865,8 @@ function BookPage(id) {
       ['Length', fmtDur(book.secs)],
       ['Chapters', hasCh() ? String(book.chapters.length) : ''],
       ['Language', book.lang],
-      ['Source', book.via ? src.providers[book.via].name : book.src ? src.providers[book.src].name : ''],
-      ['Licence', 'Public domain (USA)'],
+      ['Source', book.own ? 'Your file' : book.via ? src.providers[book.via].name : book.src && src.providers[book.src] ? src.providers[book.src].name : ''],
+      ['Licence', book.own ? '' : 'Public domain (USA)'],
     ].filter(r => r[1]);
     const kids = [h('dl', { class: 'meta' }, rows.flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })]))];
     if (book.desc) {
@@ -908,7 +922,7 @@ function BookPage(id) {
   }
 
   drawAll();
-  if (!hasCh() || !book.desc) fetchDetail();
+  if (!book.own && (!hasCh() || !book.desc)) fetchDetail();
 
   const offs = [
     player.on('state', () => { if (!document.hidden) { drawMain(); markChapter(); } }),
