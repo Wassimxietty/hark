@@ -835,18 +835,35 @@ function BookPage(id) {
       drawActs(); drawInfo();
     };
     if (!change && rec && rec.textId) return start(bookOf(rec.textId) || books.bookFromId(rec.textId));
-    toast('Looking for the text…');
-    try {
-      const found = await books.findText(book);
-      if (!found.length) return toast('No matching text was found for this recording.');
-      openSheet('Read along with', [
-        ...found.map(t => h('button', { class: 'opt', onclick: () => { closeSheet(); start(t); } },
-          h('div', { css: 'min-width:0' }, h('div', { class: 'ell', text: t.title }),
-            h('small', { css: 'display:block;font-size:11px;color:var(--muted);margin-top:2px', text: [t.author, SRC_NAME[t.src]].filter(Boolean).join(' · ') })),
-          icon('right', 18))),
-        h('div', { class: 'fine', text: 'The text follows the recording chapter by chapter where the headings match, and by position in the book otherwise. It does not follow word by word.' }),
-      ]);
-    } catch (e) { toast(e.message); }
+    // Your own book file (EPUB or text) can be paired with the recording, as well as a free edition.
+    const pickFile = () => {
+      const inp = h('input', { type: 'file' });
+      inp.addEventListener('change', async () => {
+        const f = inp.files && inp.files[0];
+        if (!f) return;
+        toast('Adding the book…');
+        try {
+          const t = await books.importFile(f);
+          lib.upsert(t, { saved: true, savedAt: Date.now() });
+          start(t);
+        } catch (e) { toast(`Could not add that file (${e.message}).`); }
+      });
+      inp.click();
+    };
+    let found = [];
+    if (!book.own) toast('Looking for the text…');
+    try { found = await books.findText(book); } catch { /* offline or no source: the file option still works */ }
+    openSheet('Read along with', [
+      h('button', { class: 'opt', onclick: () => { closeSheet(); pickFile(); } },
+        h('div', { css: 'min-width:0' }, h('div', { text: 'A book file on this iPhone' }),
+          h('small', { css: 'display:block;font-size:11px;color:var(--muted);margin-top:2px', text: 'Pick an EPUB or text file you own.' })),
+        icon('filePlus', 18)),
+      ...found.map(t => h('button', { class: 'opt', onclick: () => { closeSheet(); start(t); } },
+        h('div', { css: 'min-width:0' }, h('div', { class: 'ell', text: t.title }),
+          h('small', { css: 'display:block;font-size:11px;color:var(--muted);margin-top:2px', text: [t.author, SRC_NAME[t.src]].filter(Boolean).join(' · ') })),
+        icon('right', 18))),
+      h('div', { class: 'fine', text: (found.length ? '' : 'No free edition of this book was found. ') + 'The text follows the recording chapter by chapter where the headings match, and by position in the book otherwise. It does not follow word by word.' }),
+    ]);
   }
 
   function onDownload() {
