@@ -1,6 +1,6 @@
 // Service worker: keeps the app itself available offline and serves saved covers.
 // It never touches audio requests — those go straight to the network or to stored copies.
-const VERSION = 'hark-shell-v2';
+const VERSION = 'hark-shell-v3';
 const IMG_CACHE = 'hark-img-v1';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',

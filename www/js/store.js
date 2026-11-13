@@ -76,13 +76,20 @@ const books = new Map();
 function openDb() {
   return new Promise((res, rej) => {
     const rq = indexedDB.open('hark', 2);
+    // If an older copy of the app is still open elsewhere it can hold the database; do not wait forever.
+    const timer = setTimeout(() => rej(new Error('database busy')), 4000);
     rq.onupgradeneeded = () => {
       const d = rq.result;
       if (!d.objectStoreNames.contains('books')) d.createObjectStore('books', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('texts')) d.createObjectStore('texts', { keyPath: 'id' });
     };
-    rq.onsuccess = () => res(rq.result);
-    rq.onerror = () => rej(rq.error);
+    rq.onsuccess = () => {
+      clearTimeout(timer);
+      // Step aside when a newer version of the app needs to upgrade the database.
+      rq.result.onversionchange = () => { rq.result.close(); db = null; };
+      res(rq.result);
+    };
+    rq.onerror = () => { clearTimeout(timer); rej(rq.error); };
   });
 }
 function tx(mode, fn) {
