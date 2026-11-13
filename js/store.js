@@ -90,6 +90,7 @@ function openDb() {
       res(rq.result);
     };
     rq.onerror = () => { clearTimeout(timer); rej(rq.error); };
+    rq.onblocked = () => { clearTimeout(timer); rej(new Error('database busy')); };
   });
 }
 function tx(mode, fn) {
