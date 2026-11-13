@@ -6,6 +6,10 @@ import * as src from './sources.js';
 import * as player from './player.js';
 import * as dl from './downloads.js';
 import * as theme from './theme.js';
+import * as books from './books.js';
+import { texts } from './store.js';
+import { buildReader, openReader } from './reader.js';
+import { toast, openSheet, closeSheet, confirmSheet, seg, toggle } from './kit.js';
 
 const screens = $('#screens');
 const known = new Map(); // id -> fullest book object seen this session
@@ -18,36 +22,8 @@ function remember(b) {
 const bookOf = id => known.get(id) || (lib.get(id) && lib.get(id).book) || null;
 
 // ---------- small shared pieces ----------
-let toastT;
-function toast(msg) {
-  const el = $('#toast');
-  el.textContent = msg;
-  el.hidden = false;
-  clearTimeout(toastT);
-  toastT = setTimeout(() => { el.hidden = true; }, 2800);
-}
-
-function openSheet(title, body) {
-  const sh = $('#sheet');
-  sh.replaceChildren(
-    h('div', { class: 'sh-head' }, h('span', { text: title }), h('button', { class: 'bar-btn', onclick: closeSheet, 'aria-label': 'Close' }, icon('x'))),
-    h('div', { class: 'sh-body' }, body),
-  );
-  sh.hidden = false;
-  $('#scrim').hidden = false;
-}
-function closeSheet() { $('#sheet').hidden = true; $('#scrim').hidden = true; }
-
-function confirmSheet(title, text, label, fn) {
-  openSheet(title, h('div', { class: 'sh-pad' },
-    h('div', { text }),
-    h('div', { class: 'pair' },
-      h('button', { class: 'btn', onclick: closeSheet }, 'Cancel'),
-      h('button', { class: 'btn fill', onclick: () => { closeSheet(); fn(); } }, label))));
-}
-
 function cover(book, big) {
-  const box = h('div', { class: 'cover' });
+  const box = h('div', { class: 'cover' + (book.kind === 'text' ? ' tall' : '') });
   const url = big ? (book.coverHi || book.cover) : book.cover;
   const ph = () => box.replaceChildren(h('div', { class: 'ph', text: initials(book.title) }));
   if (!url) { ph(); return box; }
@@ -73,14 +49,14 @@ function progressOf(rec) {
 function row(book, opts = {}) {
   book = remember(book);
   const rec = lib.get(book.id);
-  const meta = opts.meta || [fmtDur(book.secs), book.lang].filter(Boolean).join(' · ');
+  const meta = opts.meta || (book.kind === 'text' ? [SRC_NAME[book.src], book.lang] : [fmtDur(book.secs), book.lang]).filter(Boolean).join(' · ');
   return h('div', { class: 'row', role: 'button', tabIndex: 0, onclick: () => openBook(book.id) },
     cover(book),
     h('div', { class: 'tx' },
       h('div', { class: 't', text: book.title }),
       h('div', { class: 'a ell', text: book.author || 'Unknown author' }),
       meta ? h('div', { class: 'm ell', text: meta }) : null),
-    opts.play ? h('button', { class: 'rplay', 'aria-label': 'Play', onclick: e => { e.stopPropagation(); opts.play(); } }, icon('play', 20))
+    opts.play ? h('button', { class: 'rplay', 'aria-label': 'Play', onclick: e => { e.stopPropagation(); opts.play(); } }, icon(opts.playIcon || 'play', 20))
       : rec && rec.saved ? icon('bookmarkFill', 18) : null);
 }
 
@@ -113,7 +89,7 @@ function pagedList(host, loader, emptyText) {
       if (r.stale) foot.append(h('div', { class: 'note', text: 'Offline — showing the last list saved on this iPhone.' }));
       for (const b of r.items) listEl.append(row(b));
       if (page === 1 && !r.items.length) foot.append(empty('Nothing here', emptyText || 'No books were found.'));
-      else if (r.items.length >= src.PAGE) foot.append(h('div', { class: 'more' }, h('button', { class: 'btn', onclick: more }, 'Load more')));
+      else if (r.more != null ? r.more : r.items.length >= src.PAGE) foot.append(h('div', { class: 'more' }, h('button', { class: 'btn', onclick: more }, 'Load more')));
       page++;
     } catch (e) {
       if (host._gen !== gen) return;
@@ -130,7 +106,7 @@ let page = null;
 const stack = []; // page hashes sitting above the current tab in history
 
 function go(hash) { location.hash = hash; }
-function openBook(id) { go('#/book/' + encodeURIComponent(id)); }
+function openBook(id) { go((books.isTextId(id) ? '#/text/' : '#/book/') + encodeURIComponent(id)); }
 function back() {
   if (stack.length) { stack.pop(); history.back(); }
   else { history.replaceState(null, '', '#/' + current); route(); }
@@ -171,10 +147,10 @@ function route() {
   const parts = hash.replace(/^#\/?/, '').split('/');
   const name = parts[0] || 'home';
   closeSheet();
-  if ((name === 'book' || name === 'list') && parts[1]) {
+  if (['book', 'list', 'text', 'tlist'].includes(name) && parts[1]) {
     const i = stack.lastIndexOf(hash);
     if (i >= 0) stack.length = i + 1; else stack.push(hash);
-    showPage(name === 'book' ? BookPage(decodeURIComponent(parts[1])) : ListPage(parts[1], parts[2]));
+    showPage(name === 'book' ? BookPage(decodeURIComponent(parts[1])) : name === 'text' ? TextPage(decodeURIComponent(parts[1])) : ListPage(parts[1], parts[2], name === 'tlist'));
     return;
   }
   stack.length = 0;
@@ -184,7 +160,7 @@ function route() {
 
 // ---------- tabs + mini player ----------
 function buildTabs() {
-  const defs = [['home', 'Home', 'home'], ['search', 'Search', 'search'], ['library', 'Library', 'shelf'], ['settings', 'Settings', 'sliders']];
+  const defs = [['home', 'Listen', 'headphones'], ['read', 'Read', 'book'], ['search', 'Search', 'search'], ['library', 'Library', 'shelf'], ['settings', 'Settings', 'sliders']];
   $('#tabs').append(...defs.map(([key, label, ic]) =>
     h('button', { data: { tab: key }, onclick: () => goTab(key) }, icon(ic, 22), h('span', { text: label }))));
 }
@@ -301,20 +277,124 @@ function HomeView() {
   return { el, scroller, show() { drawHero(); if (genre === 'all') drawMine(); } };
 }
 
+// ---------- Read (ebooks) ----------
+const SRC_NAME = { se: 'Standard Ebooks', pg: 'Project Gutenberg', file: 'Your file' };
+function textProg(rec) {
+  const p = getProg(rec.id);
+  return p && p.pct != null ? { pct: p.pct, done: !!p.done, at: p.at || 0 } : null;
+}
+
+function shelfOf(api, title, kind, moreHash) {
+  const rowEl = h('div', { class: 'shelf' });
+  const paint = r => rowEl.replaceChildren(...r.items.slice(0, 14).map(card));
+  const cached = api.peek(kind);
+  if (cached) paint(cached); else rowEl.replaceChildren(...Array.from({ length: 4 }, () => h('div', { class: 'card sk' })));
+  api.list(kind, '', 1).then(paint).catch(e => {
+    if (!cached) rowEl.replaceChildren(h('div', { class: 'note', css: 'margin:0;flex:1', text: e.message }));
+  });
+  return h('div', null,
+    h('div', { class: 'sec' }, h('h3', { text: title }), h('button', { onclick: () => go(moreHash) }, 'more')),
+    rowEl);
+}
+
+function ReadView() {
+  let genre = 'all';
+  const chips = h('div', { class: 'chips' });
+  const hero = h('div'), body = h('div'), mine = h('div');
+  const scroller = h('div', { class: 'scroll' }, chips, hero, body);
+  const pick = $('#pickBook');
+  const el = h('section', { class: 'view', hidden: true },
+    h('header', { class: 'bar' },
+      h('div', { class: 'bar-btn l' }, icon('book', 22)),
+      h('div', { class: 'bar-title', text: 'HARK' }),
+      h('button', { class: 'bar-btn r', 'aria-label': 'Add a book file', onclick: () => pick.click() }, icon('filePlus', 22))),
+    scroller);
+
+  pick.addEventListener('change', async () => {
+    const f = pick.files && pick.files[0];
+    pick.value = '';
+    if (!f) return;
+    toast('Adding the book…');
+    try {
+      const b = remember(await books.importFile(f));
+      lib.upsert(b, { saved: true, savedAt: Date.now() });
+      openBook(b.id);
+    } catch (e) { toast(`Could not add that file (${e.message}).`); }
+  });
+
+  function drawChips() {
+    const all = [{ key: 'all', label: 'Everything' }, ...src.GENRES];
+    chips.replaceChildren(...all.map(g => h('button', {
+      class: 'chip' + (g.key === genre ? ' on' : ''), text: g.label,
+      onclick: () => { if (genre !== g.key) { genre = g.key; drawChips(); drawBody(); } },
+    })));
+  }
+
+  function drawHero() {
+    const rec = settings.lastText && lib.get(settings.lastText);
+    const p = rec && textProg(rec);
+    if (rec && texts.has(rec.id) && p && !p.done) {
+      hero.replaceChildren(h('div', { class: 'hi' },
+        h('div', { class: 'kicker', text: 'Continue reading' }),
+        h('h2', { text: rec.book.title }),
+        h('p', { class: 'ell', text: [rec.book.author, `${Math.round(p.pct * 100)}% read`, rec.chars ? `${books.readMins(rec.chars * (1 - p.pct))} min left` : ''].filter(Boolean).join(' · ') }),
+        h('div', { class: 'pg' }, h('i', { css: `width:${(p.pct * 100).toFixed(1)}%` })),
+        h('button', { class: 'btn', onclick: () => openReader(rec.book) }, icon('book', 20), 'Continue')));
+    } else {
+      hero.replaceChildren(h('div', { class: 'hi' },
+        h('h2', { text: 'Read anything.' }),
+        h('p', { text: 'Free classics from Standard Ebooks and Project Gutenberg, or your own EPUB and text files.' }),
+        h('div', { class: 'pair' },
+          h('button', { class: 'btn', onclick: () => goTab('search') }, icon('search', 20), 'Find'),
+          h('button', { class: 'btn', onclick: () => pick.click() }, icon('filePlus', 20), 'Add a file'))));
+    }
+  }
+
+  function drawMine() {
+    const recs = lib.all().filter(r => r.book.kind === 'text' && texts.has(r.id)).sort((a, b) => (b.openedAt || b.addedAt) - (a.openedAt || a.addedAt));
+    if (!recs.length) { mine.replaceChildren(); return; }
+    mine.replaceChildren(
+      h('div', { class: 'sec' }, h('h3', { text: 'On this iPhone' }), h('button', { onclick: () => goTab('library') }, 'more')),
+      h('div', { class: 'shelf' }, recs.slice(0, 14).map(r => card(r.book))));
+  }
+
+  function drawBody() {
+    if (genre === 'all') {
+      body.replaceChildren(mine, shelfOf(books, 'Popular at Standard Ebooks', 'fresh', '#/tlist/fresh'), shelfOf(books, 'Most downloaded at Project Gutenberg', 'popular', '#/tlist/popular'));
+      drawMine();
+    } else {
+      const host = h('div');
+      body.replaceChildren(host);
+      pagedList(host, p => books.list('genre', genre, p));
+    }
+  }
+
+  drawChips(); drawHero(); drawBody();
+  bus.on('settings', p => { if (p && 'lang' in p) { books.clearListCache(); drawBody(); } });
+  bus.on('texts', () => { if (!el.hidden) { drawHero(); if (genre === 'all') drawMine(); } });
+  return { el, scroller, show() { drawHero(); if (genre === 'all') drawMine(); } };
+}
+
 // ---------- Search ----------
 function SearchView() {
+  let mode = 'audio', lastQ = '';
   const input = h('input', { type: 'search', placeholder: 'Title or author', autocomplete: 'off', autocapitalize: 'off', spellcheck: false, enterKeyHint: 'search', 'aria-label': 'Search' });
   const clear = h('button', { hidden: true, 'aria-label': 'Clear', onclick: () => { input.value = ''; run(); input.focus(); } }, icon('x', 18));
   const results = h('div', { hidden: true });
-  const genres = h('div', null,
-    h('div', { class: 'sec' }, h('h3', { text: 'Browse by genre' })),
-    src.GENRES.map(g => h('button', { class: 'grow', onclick: () => go('#/list/genre/' + g.key) }, h('span', { text: g.label }), icon('right', 18))));
+  const genres = h('div');
   const scroller = h('div', { class: 'scroll' }, results, genres);
   const el = h('section', { class: 'view', hidden: true },
-    h('div', { class: 'hi top' }, h('h2', { text: 'Search' }), h('div', { class: 'field' }, icon('search', 20), input, clear)),
+    h('div', { class: 'hi top' }, h('h2', { text: 'Search' }),
+      h('div', { class: 'field' }, icon('search', 20), input, clear),
+      h('div', { class: 'segw' }, seg([['audio', 'Audiobooks'], ['text', 'Books to read']], mode, v => { mode = v; lastQ = null; drawGenres(); run(); }))),
     scroller);
 
-  let lastQ = '';
+  function drawGenres() {
+    genres.replaceChildren(
+      h('div', { class: 'sec' }, h('h3', { text: mode === 'audio' ? 'Audiobooks by genre' : 'Books by genre' })),
+      src.GENRES.map(g => h('button', { class: 'grow', onclick: () => go((mode === 'audio' ? '#/list/genre/' : '#/tlist/genre/') + g.key) }, h('span', { text: g.label }), icon('right', 18))));
+  }
+
   function run() {
     const q = input.value.trim();
     clear.hidden = !input.value;
@@ -327,48 +407,62 @@ function SearchView() {
     }
     genres.hidden = true; results.hidden = false;
     scroller.scrollTop = 0;
-    pagedList(results, p => src.list('search', q, p), `Nothing found for “${q}”. Try the author's surname or the start of the title.`);
+    const api = mode === 'audio' ? src : books;
+    pagedList(results, p => api.list('search', q, p), `Nothing found for “${q}”. Only free public-domain books are listed here, so recent titles will not appear.`);
   }
+  drawGenres();
   input.addEventListener('input', debounce(run, 450));
   input.addEventListener('keydown', e => { if (e.key === 'Enter') { run(); input.blur(); } });
-  bus.on('settings', p => { if (p && 'lang' in p) { lastQ = ''; run(); } });
+  bus.on('settings', p => { if (p && 'lang' in p) { lastQ = null; run(); } });
   return { el, scroller };
 }
 
 // ---------- Library ----------
 function LibraryView() {
-  let tab = 'listening';
+  let kind = 'audio', tab = 'listening';
   const chips = h('div', { class: 'chips' });
   const listEl = h('div');
-  const scroller = h('div', { class: 'scroll' }, chips, listEl);
+  const scroller = h('div', { class: 'scroll' },
+    h('div', { class: 'segw', css: 'padding:12px 16px 0' }, seg([['audio', 'Audiobooks'], ['text', 'Books']], kind, v => { kind = v; draw(); })),
+    chips, listEl);
   const el = h('section', { class: 'view', hidden: true },
     h('header', { class: 'bar' }, h('div', { class: 'bar-title plain', text: 'Library' })), scroller);
-  const TABS = [['listening', 'Listening'], ['saved', 'Saved'], ['downloaded', 'Downloaded'], ['finished', 'Finished']];
+  const TABS = {
+    audio: [['listening', 'Listening'], ['saved', 'Saved'], ['downloaded', 'Downloaded'], ['finished', 'Finished']],
+    text: [['listening', 'Reading'], ['saved', 'Saved'], ['downloaded', 'On this iPhone'], ['finished', 'Finished']],
+  };
 
   function draw() {
-    chips.replaceChildren(...TABS.map(([k, label]) => h('button', {
+    const isText = kind === 'text';
+    chips.replaceChildren(...TABS[kind].map(([k, label]) => h('button', {
       class: 'chip' + (k === tab ? ' on' : ''), text: label, onclick: () => { tab = k; draw(); },
     })));
-    const recs = lib.all().map(r => ({ r, p: progressOf(r) }));
+    const recs = lib.all().filter(r => (r.book.kind === 'text') === isText).map(r => ({ r, p: isText ? textProg(r) : progressOf(r) }));
     let items;
     if (tab === 'listening') items = recs.filter(x => x.p && !x.p.done).sort((a, b) => b.p.at - a.p.at);
     else if (tab === 'saved') items = recs.filter(x => x.r.saved).sort((a, b) => (b.r.savedAt || 0) - (a.r.savedAt || 0));
-    else if (tab === 'downloaded') items = recs.filter(x => x.r.dl > 0 || dl.jobFor(x.r.id)).sort((a, b) => (b.r.addedAt || 0) - (a.r.addedAt || 0));
+    else if (tab === 'downloaded') items = recs.filter(x => (isText ? texts.has(x.r.id) : x.r.dl > 0 || dl.jobFor(x.r.id))).sort((a, b) => (b.r.addedAt || 0) - (a.r.addedAt || 0));
     else items = recs.filter(x => x.p && x.p.done).sort((a, b) => b.p.at - a.p.at);
 
     if (!items.length) {
       const msg = {
-        listening: ['Nothing started yet', 'Books you start playing appear here, with your place kept.'],
+        listening: isText ? ['Nothing started yet', 'Books you open appear here, with your page kept.'] : ['Nothing started yet', 'Books you start playing appear here, with your place kept.'],
         saved: ['No saved books', 'Tap Save on a book to keep it here.'],
-        downloaded: ['No downloads', 'Download a book to listen without a connection.'],
+        downloaded: isText ? ['Nothing stored yet', 'Download a book, or add your own file from the Read tab.'] : ['No downloads', 'Download a book to listen without a connection.'],
         finished: ['Nothing finished yet', 'Books you finish are listed here.'],
       }[tab];
-      listEl.replaceChildren(empty(msg[0], msg[1], h('button', { class: 'btn', onclick: () => goTab('search') }, 'Find a book')));
+      listEl.replaceChildren(empty(msg[0], msg[1], h('button', { class: 'btn', onclick: () => goTab(isText ? 'read' : 'search') }, 'Find a book')));
       return;
     }
     listEl.replaceChildren(...items.map(({ r, p }) => {
-      const job = dl.jobFor(r.id);
       let meta;
+      if (isText) {
+        if (p && p.done) meta = 'Finished';
+        else if (p) meta = `${Math.round(p.pct * 100)}% read` + (r.chars ? ` · ${books.readMins(r.chars * (1 - p.pct))} min left` : '');
+        else meta = texts.has(r.id) ? 'Stored on this iPhone' : SRC_NAME[r.book.src] || '';
+        return row(r.book, { meta, play: texts.has(r.id) ? () => openReader(r.book) : null, playIcon: 'book' });
+      }
+      const job = dl.jobFor(r.id);
       if (tab === 'downloaded') {
         const n = (r.book.chapters || []).length;
         meta = job ? `Downloading ${job.done} of ${job.total}` : r.dl >= n ? 'Downloaded' : `${r.dl} of ${n} chapters downloaded`;
@@ -382,6 +476,7 @@ function LibraryView() {
   const redraw = () => { if (!el.hidden) draw(); };
   bus.on('lib', redraw);
   bus.on('dl', redraw);
+  bus.on('texts', redraw);
   return { el, scroller, show: draw };
 }
 
@@ -394,20 +489,6 @@ function swatch(t, name, on, onclick, big) {
       h('i', { css: `background:${t.accent}` }),
       h('i', { css: `background:${t.hi};border-left:1.5px solid ${v['--ink']}` })),
     h('span', { text: name }));
-}
-
-function seg(options, value, onpick) {
-  const el = h('div', { class: 'seg' });
-  const draw = v => el.replaceChildren(...options.map(([val, label]) =>
-    h('button', { class: val === v ? 'on' : '', text: label, onclick: () => { draw(val); onpick(val); } })));
-  draw(value);
-  return el;
-}
-
-function toggle(value, onchange) {
-  const el = h('button', { class: 'tog' + (value ? ' on' : ''), role: 'switch', 'aria-checked': String(!!value) });
-  el.onclick = () => { value = !value; el.classList.toggle('on', value); el.setAttribute('aria-checked', String(value)); onchange(value); };
-  return el;
 }
 
 async function themeFromPicture(source) {
@@ -526,9 +607,11 @@ function SettingsView() {
 }
 
 // ---------- list page (genre / popular / new) ----------
-function ListPage(kind, arg) {
+function ListPage(kind, arg, isText) {
   const g = kind === 'genre' ? src.GENRES.find(x => x.key === arg) : null;
-  const title = g ? g.label : kind === 'latest' ? 'New arrivals' : 'Popular';
+  const title = g ? g.label : isText ? (kind === 'fresh' ? 'Popular at Standard Ebooks' : 'Most downloaded at Project Gutenberg') : kind === 'latest' ? 'New arrivals' : 'Popular';
+  const api = isText ? books : src;
+  const k = g ? 'genre' : isText ? (kind === 'fresh' ? 'fresh' : 'popular') : kind === 'latest' ? 'latest' : 'popular';
   const host = h('div');
   const el = h('section', { class: 'view page' },
     h('header', { class: 'bar' },
@@ -536,8 +619,128 @@ function ListPage(kind, arg) {
       h('div', { class: 'bar-title plain', text: title }),
       h('div', { class: 'bar-btn' })),
     h('div', { class: 'scroll' }, host));
-  pagedList(host, p => src.list(g ? 'genre' : kind === 'latest' ? 'latest' : 'popular', g ? arg : '', p));
+  pagedList(host, p => api.list(k, g ? arg : '', p));
   return { el };
+}
+
+// ---------- ebook page ----------
+function TextPage(id) {
+  let book = bookOf(id) || books.bookFromId(id);
+  let busy = false, fullDesc = false;
+  const head = h('div'), main = h('div', { class: 'pad' }), acts = h('div', { class: 'acts' }), info = h('div');
+  const el = h('section', { class: 'view page' },
+    h('header', { class: 'bar' },
+      h('button', { class: 'bar-btn l', onclick: back, 'aria-label': 'Back' }, icon('back')),
+      h('div', { class: 'bar-title', text: 'HARK' }),
+      h('button', { class: 'bar-btn r', onclick: share, 'aria-label': 'Share' }, icon('share'))),
+    h('div', { class: 'scroll' }, head, main, acts, info));
+  const stored = () => texts.has(book.id);
+
+  function share() {
+    if (!book.link) return toast('This book came from your own file.');
+    if (navigator.share) navigator.share({ title: book.title || 'Book', url: book.link }).catch(() => {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(book.link).then(() => toast('Link copied'), () => {});
+  }
+
+  function drawHead() {
+    head.replaceChildren(h('div', { class: 'bk-head' },
+      cover(book, true),
+      h('div', { css: 'min-width:0;flex:1' },
+        h('h1', { class: 'bk-title', text: book.title || 'Loading…' }),
+        book.author ? h('div', { class: 'bk-by' }, 'By ', h('b', { text: book.author })) : null,
+        h('div', { class: 'bk-by', text: SRC_NAME[book.src] || '' }))));
+  }
+
+  async function read() {
+    if (busy) return;
+    busy = true; drawMain();
+    await openReader(book);
+    busy = false; drawAll();
+  }
+
+  function drawMain() {
+    const p = getProg(book.id);
+    const label = busy ? (stored() ? 'Opening…' : 'Getting the book…') : p && p.done ? 'Read again' : p && p.pct > 0.003 ? `Continue · ${Math.round(p.pct * 100)}%` : 'Read';
+    main.replaceChildren(h('button', { class: 'btn fill', disabled: busy, onclick: read }, icon('book', 20), label));
+  }
+
+  function drawActs() {
+    const rec = lib.get(book.id);
+    acts.replaceChildren(
+      h('button', { class: stored() ? 'on' : '', onclick: onDownload }, icon(stored() ? 'check' : 'download', 22), stored() ? 'On this iPhone' : 'Download'),
+      h('button', { class: rec && rec.saved ? 'on' : '', onclick: () => {
+        const saved = !(rec && rec.saved);
+        lib.upsert(book, { saved, savedAt: Date.now() });
+        drawActs(); toast(saved ? 'Saved to your library' : 'Removed from saved');
+      } }, icon(rec && rec.saved ? 'bookmarkFill' : 'bookmark', 22), rec && rec.saved ? 'Saved' : 'Save'),
+      h('button', { onclick: listen }, icon('headphones', 22), 'Listen'));
+  }
+
+  async function onDownload() {
+    if (stored()) {
+      const own = book.src === 'file';
+      return confirmSheet(own ? 'Delete this book' : 'Remove from this iPhone',
+        own ? 'This book came from your own file. Deleting it removes it from Hark completely, with its notes.' : 'The stored copy will be deleted. Your notes and your page are kept, and you can download it again.',
+        own ? 'Delete' : 'Remove', () => {
+          texts.remove(book.id);
+          if (own) { clearProg(book.id); lib.remove(book.id); back(); } else drawAll();
+        });
+    }
+    if (busy) return;
+    busy = true; drawMain();
+    try {
+      const t = await books.getText(book);
+      lib.upsert(book, { chars: t.chars });
+      toast('Stored for reading without a connection');
+    } catch (e) { toast(`Download failed (${e.message}).`); }
+    busy = false; drawAll();
+  }
+
+  async function listen() {
+    toast('Looking for a recording…');
+    try {
+      const r = await src.list('search', books.searchTitle(book), 1);
+      const sur = (book.author || '').toLowerCase().split(/[ ,]+/).filter(Boolean).pop();
+      const hits = r.items.filter(b => !sur || (b.author || '').toLowerCase().includes(sur)).slice(0, 8);
+      if (!hits.length) return toast('No free recording of this book was found.');
+      openSheet('Listen to', hits.map(b => { remember(b); return h('button', { class: 'opt', onclick: () => { closeSheet(); openBook(b.id); } },
+        h('div', { css: 'min-width:0' }, h('div', { class: 'ell', text: b.title }), h('small', { css: 'display:block;font-size:11px;color:var(--muted);margin-top:2px', text: [b.author, fmtDur(b.secs)].filter(Boolean).join(' · ') })), icon('right', 18)); }));
+    } catch (e) { toast(e.message); }
+  }
+
+  function drawInfo() {
+    const rec = lib.get(book.id);
+    const chars = rec && rec.chars;
+    const mins = chars ? books.readMins(chars) : 0;
+    const rows = [
+      ['Length', chars ? `${Math.round(chars / 6000)},000 words · about ${mins >= 90 ? Math.round(mins / 60) + ' h' : mins + ' min'}` : ''],
+      ['Language', book.lang],
+      ['Source', SRC_NAME[book.src]],
+      ['Subjects', (book.subjects || []).slice(0, 4).join(', ')],
+      ['Licence', book.src === 'file' ? '' : 'Public domain (USA)'],
+    ].filter(r => r[1]);
+    const kids = [h('dl', { class: 'meta' }, rows.flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })]))];
+    if (book.desc) {
+      kids.push(h('div', { class: 'desc' + (fullDesc ? '' : ' clamp'), text: book.desc }));
+      if (book.desc.length > 320) kids.push(h('div', { class: 'pad' }, h('button', { class: 'link', text: fullDesc ? 'Show less' : 'Read more', onclick: () => { fullDesc = !fullDesc; drawInfo(); } })));
+    }
+    const n = rec && rec.marks ? rec.marks.length : 0;
+    if (n) kids.push(h('div', { class: 'fine', text: `${n} bookmark${n === 1 ? '' : 's'} and highlight${n === 1 ? '' : 's'} in this book. Open it and tap the list button to see them.` }));
+    if (rec && book.src !== 'file') {
+      kids.push(h('div', { class: 'pad' }, h('button', { class: 'link', text: 'Remove from library', onclick: () => confirmSheet('Remove from library', 'This forgets your page, your notes and the stored copy of this book.', 'Remove', () => {
+        texts.remove(book.id); clearProg(book.id); lib.remove(book.id); drawAll(); toast('Removed');
+      }) })));
+    }
+    info.replaceChildren(...kids);
+  }
+
+  function drawAll() { drawHead(); drawMain(); drawActs(); drawInfo(); }
+  drawAll();
+  if (book.src !== 'file' && !book.desc && !book.subjects) {
+    books.getDetail(book).then(b => { book = remember(b); if (lib.get(book.id)) lib.upsert(book); drawAll(); }).catch(() => {});
+  }
+  const offs = [bus.on('texts', tid => { if (tid === book.id) { drawMain(); drawActs(); } })];
+  return { el, destroy() { offs.forEach(f => f()); } };
 }
 
 // ---------- book page ----------
@@ -604,7 +807,33 @@ function BookPage(id) {
         if (saved) dl.keepCover(book);
         drawActs(); toast(saved ? 'Saved to your library' : 'Removed from saved');
       } }, icon(rec && rec.saved ? 'bookmarkFill' : 'bookmark', 22), rec && rec.saved ? 'Saved' : 'Save'),
-      h('button', { onclick: () => openSheet('Chapters', chapterOptions(book, i => { player.load(book, { idx: i, t: 0 }); })), disabled: !hasCh() }, icon('list', 22), n ? `${n} chapters` : 'Chapters'));
+      h('button', { class: rec && rec.textId ? 'on' : '', onclick: () => readAlong(false), disabled: !hasCh() }, icon('book', 22), 'Read along'));
+  }
+
+  // Open the book's text beside the recording. The first time, the reader picks which edition.
+  async function readAlong(change) {
+    const rec = lib.get(book.id);
+    const start = async t => {
+      remember(t);
+      lib.upsert(book, { textId: t.id });
+      if (!isCurrent()) player.load(book, { autoplay: false });
+      toast('Opening the text…');
+      await openReader(t, { follow: true });
+      drawActs(); drawInfo();
+    };
+    if (!change && rec && rec.textId) return start(bookOf(rec.textId) || books.bookFromId(rec.textId));
+    toast('Looking for the text…');
+    try {
+      const found = await books.findText(book);
+      if (!found.length) return toast('No matching text was found for this recording.');
+      openSheet('Read along with', [
+        ...found.map(t => h('button', { class: 'opt', onclick: () => { closeSheet(); start(t); } },
+          h('div', { css: 'min-width:0' }, h('div', { class: 'ell', text: t.title }),
+            h('small', { css: 'display:block;font-size:11px;color:var(--muted);margin-top:2px', text: [t.author, SRC_NAME[t.src]].filter(Boolean).join(' · ') })),
+          icon('right', 18))),
+        h('div', { class: 'fine', text: 'The text follows the recording chapter by chapter where the headings match, and by position in the book otherwise. It does not follow word by word.' }),
+      ]);
+    } catch (e) { toast(e.message); }
   }
 
   function onDownload() {
@@ -631,6 +860,7 @@ function BookPage(id) {
       kids.push(d);
       if (book.desc.length > 320) kids.push(h('div', { class: 'pad' }, h('button', { class: 'link', text: fullDesc ? 'Show less' : 'Read more', onclick: () => { fullDesc = !fullDesc; drawInfo(); } })));
     }
+    if (lib.get(book.id) && lib.get(book.id).textId) kids.push(h('div', { class: 'pad' }, h('button', { class: 'link', text: 'Choose a different text for Read along', onclick: () => readAlong(true) })));
     if (lib.get(book.id)) {
       kids.push(h('div', { class: 'pad' }, h('button', { class: 'link', text: 'Remove from library', onclick: () => confirmSheet('Remove from library', 'This forgets your place in this book and deletes its downloaded chapters.', 'Remove', async () => {
         if (isCurrent()) player.unload();
@@ -836,7 +1066,9 @@ export function initUI() {
   buildTabs();
   buildMini();
   buildPlayer();
+  buildReader();
   views.home = HomeView();
+  views.read = ReadView();
   views.search = SearchView();
   views.library = LibraryView();
   views.settings = SettingsView();
@@ -847,7 +1079,7 @@ export function initUI() {
   player.on('finished', b => toast(`Finished: ${b.title}`));
 
   // A page opened directly needs a tab underneath it to go back to.
-  if (/^#\/(book|list)\//.test(location.hash)) {
+  if (/^#\/(book|list|text|tlist)\//.test(location.hash)) {
     const target = location.hash;
     history.replaceState(null, '', '#/home');
     history.pushState(null, '', target);

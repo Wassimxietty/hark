@@ -58,6 +58,8 @@ const ICONS = {
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.2 2"/>',
   alert: '<path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5M12 17.2h.01"/>',
   headphones: '<path d="M4.5 15v-3a7.5 7.5 0 0 1 15 0v3"/><path d="M4.5 14.5h3v5.5h-3zM16.5 14.5h3v5.5h-3z"/>',
+  book: '<path d="M12 6.5C9 4.9 6.5 4.5 3.5 5.5v13c3-1 5.5-.6 8.5 1 3-1.6 5.5-2 8.5-1v-13c-3-1-5.5-.6-8.5 1zM12 6.5v13"/>',
+  filePlus: '<path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M12 11v6M9 14h6"/>',
   sparkle: '<path d="M12 3.5 13.8 10l6.7 2-6.7 2L12 20.5 10.2 14l-6.7-2 6.7-2z"/>',
 };
 

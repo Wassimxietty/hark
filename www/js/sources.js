@@ -12,21 +12,21 @@ const LV = 'https://librivox.org/api/feed/audiobooks';
 export const PAGE = 24;
 
 export const GENRES = [
-  { key: 'fiction', label: 'General Fiction', lv: 'General Fiction', ia: 'fiction' },
-  { key: 'mystery', label: 'Mystery & Crime', lv: 'Crime & Mystery Fiction', ia: 'mystery OR detective OR crime' },
-  { key: 'scifi', label: 'Science Fiction', lv: 'Science Fiction', ia: '"science fiction"' },
-  { key: 'fantasy', label: 'Fantasy', lv: 'Fantastic Fiction', ia: 'fantasy OR "fairy tales"' },
-  { key: 'adventure', label: 'Adventure', lv: 'Action & Adventure Fiction', ia: 'adventure' },
-  { key: 'horror', label: 'Horror & Gothic', lv: 'Horror & Supernatural Fiction', ia: 'horror OR gothic OR supernatural OR ghost' },
+  { key: 'fiction', se: 'fiction', label: 'General Fiction', lv: 'General Fiction', ia: 'fiction' },
+  { key: 'mystery', se: 'mystery', label: 'Mystery & Crime', lv: 'Crime & Mystery Fiction', ia: 'mystery OR detective OR crime' },
+  { key: 'scifi', se: 'science-fiction', label: 'Science Fiction', lv: 'Science Fiction', ia: '"science fiction"' },
+  { key: 'fantasy', se: 'fantasy', label: 'Fantasy', lv: 'Fantastic Fiction', ia: 'fantasy OR "fairy tales"' },
+  { key: 'adventure', se: 'adventure', label: 'Adventure', lv: 'Action & Adventure Fiction', ia: 'adventure' },
+  { key: 'horror', se: 'horror', label: 'Horror & Gothic', lv: 'Horror & Supernatural Fiction', ia: 'horror OR gothic OR supernatural OR ghost' },
   { key: 'romance', label: 'Romance', lv: 'Romance', ia: 'romance' },
-  { key: 'children', label: 'Children', lv: "Children's Fiction", ia: 'children OR juvenile' },
-  { key: 'poetry', label: 'Poetry', lv: 'Poetry', ia: 'poetry OR poems' },
+  { key: 'children', se: 'childrens', label: 'Children', lv: "Children's Fiction", ia: 'children OR juvenile' },
+  { key: 'poetry', se: 'poetry', label: 'Poetry', lv: 'Poetry', ia: 'poetry OR poems' },
   { key: 'history', label: 'History', lv: 'History', ia: 'history' },
-  { key: 'philosophy', label: 'Philosophy', lv: 'Philosophy', ia: 'philosophy' },
-  { key: 'humour', label: 'Humour', lv: 'Humorous Fiction', ia: 'humor OR humour OR comedy OR satire' },
-  { key: 'plays', label: 'Plays', lv: 'Plays', ia: 'plays OR drama' },
-  { key: 'short', label: 'Short Stories', lv: 'Short Stories', ia: '"short stories"' },
-  { key: 'bio', label: 'Biography', lv: 'Biography & Autobiography', ia: 'biography OR autobiography OR memoirs' },
+  { key: 'philosophy', se: 'philosophy', label: 'Philosophy', lv: 'Philosophy', ia: 'philosophy' },
+  { key: 'humour', se: 'comedy', label: 'Humour', lv: 'Humorous Fiction', ia: 'humor OR humour OR comedy OR satire' },
+  { key: 'plays', se: 'drama', label: 'Plays', lv: 'Plays', ia: 'plays OR drama' },
+  { key: 'short', se: 'shorts', label: 'Short Stories', lv: 'Short Stories', ia: '"short stories"' },
+  { key: 'bio', se: 'biography', label: 'Biography', lv: 'Biography & Autobiography', ia: 'biography OR autobiography OR memoirs' },
 ];
 
 export const LANGS = [
